@@ -1,0 +1,79 @@
+---
+title: "Intro"
+author: "Sam"
+format: html
+editor: visual
+---
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(fpp3)
+```
+
+```{r}
+tourism
+```
+
+```{r}
+distinct(tourism, State)
+```
+
+Vamos a analizar el estado de Tasmania
+
+```{r}
+distinct(filter(tourism, State == 'Tasmania'), Region)
+```
+
+```{r}
+filter(tourism, State == 'Tasmania', Region == 'East Coast')
+```
+
+```{r}
+summarise(group_by(as_tibble(filter(tourism, State == 'Tasmania', Region == 'East Coast')), Purpose), media = mean(Trips))
+```
+
+Alternativa más bonita:
+
+```{r}
+tourism |>
+  filter(State == 'Tasmania', 
+         Region == 'East Coast') |>
+  as_tibble() |>
+  group_by(Purpose) |>
+  summarise(media = mean(Trips))
+```
+
+```{r}
+tourism |>
+  filter(State == 'Tasmania', 
+         Region == 'East Coast') |>
+  autoplot(Trips)
+```
+
+Separamos "en fasetas" las 4 gráficas
+
+```{r}
+tourism |>
+  filter(State == 'Tasmania', 
+         Region == 'East Coast') |>
+  autoplot(Trips) +
+  facet_wrap(vars(Purpose), scale = 'free_y') + 
+  theme(legend.position = 'none')
+```
+
+```{r}
+tourism |>
+  filter(State == 'Tasmania', 
+         Region == 'East Coast') |>
+  mutate(Quarter = as.Date(Quarter)) |>
+  write_csv('tasmania.csv')
+```
+
+```{r}
+tasmania <- read.csv('tasmania.csv')
+tasmania
+```
+
+```{r}
+
+```
