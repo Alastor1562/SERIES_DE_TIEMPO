@@ -1,0 +1,129 @@
+---
+title: "Clase 5 - Flujo de trabajo limpio"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+El flujo de trabajo, cuando se va a realizar un proceso, se puede dividir en pasos:
+
+1.  **Preparación de los datos (limpieza)**
+
+    -   Que cada columna sea una sola variable
+
+2.  **Gráfica de los datos (visualización)**
+
+    -   No free lunch - Ningún modelo es EL modelo para cada situación
+
+3.  **Definición del modelo (especificación)**
+
+4.  **Entrenamiento del modelo (estimación)**
+
+    Vamos a separar nuestros datos en 3 secciones:
+
+    I.  Train - Datos con los que entrenas el modelo
+
+    II. Test - Tratas de predecir estos datos con el modelo. Haces cuantas iteraciones quieras cambiando los parámetros que desees hasta alcanzar un modelo que te satisfaga.
+
+    III. Validación - Ya que tengas el modelo que quieres, lo entrenas con los datos tanto de train como test, y haces UNA SOLA iteración tratando de predecir los datos de validación.
+
+5.  **Revisar el desempeño del modelo (evaluación)**
+
+6.  **Producir pronósticos**
+
+## Gráficas
+
+**Gráfica de tiempo**
+
+```{r}
+aus_production |>
+  autoplot(Gas)
+```
+
+Esta gráfica se enfoca en el análisis de estacionalidad de una serie
+
+```{r}
+aus_production |>
+  model(STL(Gas, robust = TRUE)) |>
+  components() |>
+  mutate(sin_tend = season_year + remainder)|>
+  gg_season(sin_tend)
+
+aus_production |>
+  gg_season(Gas)
+```
+
+**Gráfica de subseries** - tenemos cada trimestre separado
+
+```{r}
+aus_production |>
+  gg_subseries(Gas)
+```
+
+Esta función crea 3 gráficas a la vez: Serie de tiempo, Gráfica estacional y Gráfica de autocorrelación:
+
+```{r}
+aus_production |>
+  gg_tsdisplay(Gas)
+```
+
+## **Métodos de Pronóstico - Benchmark**
+
+-   ***Media*** - Pronostica la media de los datos con el que lo entrenas
+
+<!-- -->
+
+-   ***Ingenuo*** - Pronostica el último valor de los datos con el que lo entrenas. Es el modelo óptimo para pronosticar una caminata aleatoria
+
+<!-- -->
+
+-   ***Ingenuo estacional*** - Pronostica el último conjunto estacional de los datos con el que lo entrenas
+
+<!-- -->
+
+-   ***Modelo drift*** - Una especie de regresión lineal. La pendiente se crea con el primer y último valor de la serie, y el intercepto es el primer valor que tienes
+
+```{r}
+gas_fit <- aus_production |>
+  model(
+    media = MEAN(Gas),
+    naive = NAIVE(Gas),
+    seasonal_naive = SNAIVE(Gas),
+    drift = NAIVE(Gas ~ drift())
+  )
+
+gas_fit
+```
+
+**Residuos** - Diferencia entre el valor real y el estimado
+
+```{r}
+gas_aug <- gas_fit |>
+  augment()
+gas_aug
+
+gas_aug |>
+  autoplot(.innov)+
+  facet_wrap(vars(.model), scale = 'free_y') + 
+  theme(legend.position = 'none')
+```
+
+**Ruido blanco** - El error del modelo, la parte aleatoria del sistema
+
+## Diagnóstico
+
+Un buen modelo debe de seguir ciertos puntos:
+
+-   No debe haber autocorrelación en los residuos
+
+-   La media de los residuos debe ser 0
+
+    y deseables...
+
+-   Varianza constante de los residuos
+
+-   Distrbución normal de los residuos
