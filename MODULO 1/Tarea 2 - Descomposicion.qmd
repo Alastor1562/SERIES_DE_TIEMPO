@@ -1,0 +1,62 @@
+---
+title: "Tarea 2 - Modelo STL"
+author: "Samuel Gómez Jiménez"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+```{r}
+aus_production |> 
+  autoplot(Beer)
+```
+
+## Descomposición Clásica Adtitiva
+
+```{r}
+aus_production |> 
+  model(dcmp_clasica = classical_decomposition(Beer, type = "additive")) |> 
+  components() |> 
+  autoplot()
+```
+
+## Descomposición Clásica Multiplicativa
+
+```{r}
+aus_production |> 
+  model(dcmp_clasica = classical_decomposition(Beer, type = "multiplicative")) |> 
+  components() |> 
+  autoplot()
+```
+
+## Modelo STL
+
+### Propuesta 1:
+
+Modelo con ventana de tendencia calculada automáticamente y estacionalidad periódica
+
+```{r}
+aus_production |> 
+  model(STL(Beer ~ season(window = "periodic"), robust = TRUE))|> 
+  components() |> 
+  autoplot()
+```
+
+### Propuesta 2:
+
+Ventana con ajuste manual de ventana de tendencia y estacionalidad
+
+```{r}
+aus_production |>    
+  model(
+    STL(Beer ~ trend(window = 11) + season(window = 11), robust = TRUE
+        ))|>    
+  components() |>    
+  autoplot()
+```
+
+### 

@@ -1,0 +1,125 @@
+---
+title: "Descomposición de Series"
+author: "Sam"
+format: html
+editor: visual
+---
+
+La descomposición aditiva se refiere a: $Serie = Tendencia + Esacionalidad + Residuo$
+
+Mientras que la multiplicativa es: $Serie = Tendencia * Esacionalidad * Residuo$
+
+***¿Cuándo usar cada una?***
+
+STL significa "Seasonal and Trend decomposition using Loess". De los modelos más versátiles porque podemos agarrar cualquier estacionalidad y modelarlos.
+
+-   Puede tratar con cuqluier tipo de estacionalidad, no solo mensual o trimestral.
+
+-   El componente estacional puede variar con el tiempo y el usuario decide la magnitud del cambio.
+
+-   La suavización del componente de tendecnai tambiés es controlado por el usuario.
+
+-   Puede ser robusto ante **outliers**, para que observaciones inusuales no afecten el componente.
+
+Las desventajas de este método son que no controla de manera automática la variación.
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+```{r}
+tasmania <- tourism |>
+  filter(State == 'Tasmania',
+         Region == 'East Coast')
+tasmania
+```
+
+La función `model()` sirve para ajustar uno o más modelos a las(s) serie(s) de tiempo. Nos devuelve una tabla de modelos ('mable').
+
+```{r}
+tasmania |>
+  model(dcmp_clasica = classical_decomposition(Trips))
+```
+
+La función `components()` te ayuda a descomponer el modelo en sus distintos valores
+
+```{r}
+tasmania_comp <- tasmania |>
+  model(dcmp_clasica = classical_decomposition(Trips)) |>
+  components()
+
+tasmania_comp
+
+tasmania_comp |>
+  autoplot()
+```
+
+```{r}
+tasmania_comp |> 
+  filter(Purpose == "Holiday") |> 
+  ggplot(aes(x = Quarter, y = Trips)) + 
+  geom_line(color = "grey", size = 2) + 
+  geom_line(aes(y = trend), color = "red", size = 2)
+
+tasmania_comp |> 
+  filter(Purpose == "Holiday") |> 
+  ggplot(aes(x = Quarter, y = Trips)) + 
+  geom_line(color = "grey", size = 2) + 
+  geom_line(aes(y = season_adjust), color = "dodgerblue", size = 2)
+```
+
+El `season adjust` nos sirve para quitar la estacionalidad de la serie.
+
+Al quitar la estacionalidad, podemos comparar de forma pareja los periodos de tiempo, ej. meses.
+
+Ahora usaremos STL
+
+```{r}
+tasmania_stl |>
+  filter(Purpose == 'Holiday') |>
+  model(STL(Trips ~ trend(window = 21)+
+              season(window = 7), robust = FALSE)) |>
+  components() |>
+  autoplot()
+
+tasmania_stl
+```
+
+El robust hace que eliminemos outliers de la tendencia
+
+```{r}
+aus_production |> 
+  model(STL(Gas ~ season(window = "periodic"), robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
+
+```{r}
+
+aus_production |> 
+  model(STL(Gas, robust = TRUE)) |> 
+  components() |> 
+  ggplot(aes(x = Quarter, y = Gas)) + 
+  geom_line(color = "grey", size = 1) + 
+  geom_line(aes(y = trend), color = "firebrick", size = 1)
+
+aus_production |> 
+  model(STL(Gas, robust = TRUE)) |> 
+  components() |> 
+  ggplot(aes(x = Quarter, y = Gas)) + 
+  geom_line(color = "grey", size = 1) + 
+  geom_line(aes(y = season_adjust), color = "dodgerblue", size = 1)
+```
+
+Cambiamos un comportamiento exponencial a recta al aplicar ln a la ecuación
+
+```{r}
+aus_production |>
+  autoplot(log(Gas))
+
+aus_production |> 
+  model(STL(log(Gas) ~ season(window = "periodic"), robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
