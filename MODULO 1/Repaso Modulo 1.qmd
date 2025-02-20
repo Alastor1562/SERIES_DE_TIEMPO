@@ -1,0 +1,169 @@
+---
+title: "Repaso Modulo 1"
+format: html
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r}
+library(tidyverse)
+library(fpp3)
+library(plotly)
+```
+
+## 1. Preparación de datos
+
+```{r}
+gdp <- tidyquant::tq_get(            #Descargamos los datos de yahoo finance
+  x    = "NGDPRNSAXDCMXQ",
+  get  = "economic.data",
+  from = "1997-01-01"
+) |> 
+  mutate(date = yearquarter(date)) |> #Cambiamos el formato de year a trimestres
+  as_tsibble(
+    index = date,
+    key   = symbol
+  )
+gdp
+```
+
+## 2. Visualización de datos
+
+```{r}
+autoplot(gdp)
+```
+
+```{r}
+gdp_train <- gdp |> 
+  filter_index(. ~ "2021 Q4")
+
+gdp_train
+```
+
+```{r}
+gdp_train |> 
+autoplot(price) +
+labs(
+  title = "Time series plot of the Real GDP for Mexico",
+  y = "GDP"
+)
+```
+
+```{r}
+gdp_train |> 
+  gg_season(price) |> 
+  ggplotly()
+```
+
+## 3. Definimos los modelos
+
+```{r}
+gdp_fit <- gdp_train |>
+  model(
+    snaive = SNAIVE(log(price)),
+    drift  = RW(log(price) ~ drift()),
+    stlf = decomposition_model(
+          STL(log(price) ~ season(window = "periodic"), robust = TRUE),
+          RW(season_adjust ~ drift())
+        )
+  )
+
+gdp_fit |> 
+  select(snaive) |> 
+  gg_tsresiduals() +
+  ggtitle("Modelo: SNAIVE")
+
+gdp_fit |> 
+  select(drift) |> 
+  gg_tsresiduals() +
+  ggtitle("Modelo: DRIFT")
+
+gdp_fit |> 
+  select(stlf) |> 
+  gg_tsresiduals() +
+  ggtitle("Modelo: STLF")
+```
+
+```{r}
+gdp_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+```
+
+## 4. Forecast con los modelos
+
+```{r}
+gdp_fc <- gdp_fit |> 
+  forecast(h = 11) 
+
+gdp_fc
+```
+
+```{r}
+gdp_fc |> 
+  autoplot(gdp) +
+  facet_wrap(~.model, ncol = 1)
+```
+
+## 5. Desempeño de los modelos
+
+```{r}
+gdp_fc |> 
+  accuracy(gdp) |> 
+  select(.model:.type, MAPE, RMSE, MAE, MASE) |> 
+  arrange(MAPE)
+```
+
+## 6. Propuesta de modelo alternativo
+
+Analizando las gráficas anteriores, se pudo determinar que el modelo snaive no era el correcto para poder predecir estos datos, ya que las predicciones capturan bien la estacionalidad, pero ignora casi por completo la tendencia. Los mejores modelos que pudimos rescatar, fueron el del drift que captura muy bien la tendencia y el stlf que captura un poco mejor la estacionalidad. Precisamente por esto, fue que decidimos buscar un modelo que combinara las 2 mejores opciones de modelo, para así disminuir el error y hacerlo un modelo más certero.
+
+```{r}
+gdp_fit2 <- gdp_train |>
+  model(
+    stl_combi = combination_model(
+      RW(log(price) ~ drift()
+         ),
+      decomposition_model(
+          STL(log(price) ~ season(window = "periodic"), robust = TRUE),
+          RW(season_adjust ~ drift())
+        )
+    ),
+    stl_combi_weights = combination_weighted(
+      RW(log(price) ~ drift()
+         ),
+      decomposition_model(
+          STL(log(price) ~ season(window = "periodic"), robust = TRUE),
+          RW(season_adjust ~ drift())
+    ), weights = c(1.2, 0.8)
+    )
+  )
+
+gdp_fit2 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+```
+
+Utilizamos 2 maneras diferentes para hacer esta combinación. La primera combinación en dónde cada modelo tiene el mismo peso y obteniendose como resultado una gráfica que nos predice muy bien la tendencia y un tanto bien la estacionalidad. Por el otro lado, como se observó una muy buena respuesta de esta primera combinación, se decidió por intentar una combinación por pesos. En esta última, se utilizó un peso de 1.2 para el modelo stlf y un peso de 0.8 para el modelo drift lo que nos dió como resultado un error mínimo. Además, el p-value que se obtuvo fue de 0.083, lo que nos indica que la hipótesis nula no se rechaza y quiere decir que no hay correlación en los residuales, por ende, nuestro modelo capturó de manera óptima la tendencia de nuestros datos.
+
+```{r}
+gdp_fc2 <- gdp_fit2 |> 
+  forecast(h = 11) 
+
+gdp_fc2 |> 
+  autoplot(gdp) +
+  facet_wrap(~.model, ncol = 1)
+```
+
+Finalmente, el error en MAPE que se obtuvo, disminuyó con este nuevo modelo con pesos, lo que nos indica una disminución de la diferencia entre los datos predichos y los datos reales. Pese a que este modelo presenta un menor MAPE, hay que reconocer que captura una menor estacionalidad y mayor tendencia por la naturaleza de los pesos establecidos. Asimismo, ha de notarse que el p-value apenas libra el alpha estándar, mientras que el combinado sin pesos presenta un p-valor mayor de 0.4 por lo que la falta de autocorrelación en los residuos de este último modelo es de mayor fiar.
+
+```{r}
+gdp_fc2 |> 
+  accuracy(gdp) |> 
+  select(.model:.type, MAPE, RMSE, MAE, MASE) |> 
+  arrange(MAPE)
+```
+
+Bajo el criterio de minimizar MAPE, concluimos que el mejor modelo es una combinación de drift y stlf, con pesos asigandos de 1.2 y 0.8 respectivamente.

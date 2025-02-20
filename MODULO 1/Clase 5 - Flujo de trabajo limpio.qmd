@@ -1,13 +1,18 @@
 ---
 title: "Clase 5 - Flujo de trabajo limpio"
 format: html
-editor: visual
+output: 
+  html_document:
+    toc: true
+    toc_float: true
 ---
 
 ```{r}
 library(tidyverse)
 library(fpp3)
 ```
+
+# Flujo de Trabajo Limpio
 
 El flujo de trabajo, cuando se va a realizar un proceso, se puede dividir en pasos:
 
@@ -71,19 +76,13 @@ aus_production |>
   gg_tsdisplay(Gas)
 ```
 
-## **Métodos de Pronóstico - Benchmark**
+# **Métodos de Pronóstico - Benchmark**
 
 -   ***Media*** - Pronostica la media de los datos con el que lo entrenas
 
-<!-- -->
-
 -   ***Ingenuo*** - Pronostica el último valor de los datos con el que lo entrenas. Es el modelo óptimo para pronosticar una caminata aleatoria
 
-<!-- -->
-
 -   ***Ingenuo estacional*** - Pronostica el último conjunto estacional de los datos con el que lo entrenas
-
-<!-- -->
 
 -   ***Modelo drift*** - Una especie de regresión lineal. La pendiente se crea con el primer y último valor de la serie, y el intercepto es el primer valor que tienes
 
@@ -110,7 +109,14 @@ gas_aug |>
   autoplot(.innov)+
   facet_wrap(vars(.model), scale = 'free_y') + 
   theme(legend.position = 'none')
+
+gas_aug |>
+  group_by_key() |>
+  as_tibble() |>
+  summarise(media = mean(.resid, na.rm = TRUE))
 ```
+
+LOS RESIDUOS DEBEN DE LUCIR COMO RUIDO BLANCO
 
 **Ruido blanco** - El error del modelo, la parte aleatoria del sistema
 
@@ -118,12 +124,371 @@ gas_aug |>
 
 Un buen modelo debe de seguir ciertos puntos:
 
--   No debe haber autocorrelación en los residuos
+-   *No debe haber autocorrelación en los residuos*, de lo contrario, significaría que hay dependencia del error anterior para el siguiente, anulando la aleatoridad del ruido blanco.
 
 -   La media de los residuos debe ser 0
 
-    y deseables...
+    Si la media es +, el modelo subestima en gran parte; si la media es -, significa que sobrestima
+
+y deseables...
 
 -   Varianza constante de los residuos
 
 -   Distrbución normal de los residuos
+
+```{r}
+gas_fit |>
+  select(seasonal_naive) |>
+  gg_tsresiduals()
+```
+
+# Tests de Autocorrelación
+
+### Test de Box-Pierce
+
+$$
+Q = T\sum_{k=1}^{h}r^2_k
+$$
+
+$r_k$ : el k' ésimo coeficiente de correlación
+
+Se recomienda h = 10 cuando no existe estacionalidad
+
+Se recomienda h = 2m cuando existe estacionalidad, donde m es igual a la cantidad de veces que se repite la estacionalidad en el año
+
+y $h \leq \frac{T}{5}$ (20% de los datos)
+
+$H_o: Q = 0$ –\> No hay autocorrelación –\> Ruido blanco
+
+$H_i: Q \neq 0$ –\> Hay autocorrelación
+
+### Test de Ljung-Box
+
+$$
+Q^* = T(T+2)\sum_{k=1}^{h}(T-k)^{-1}r^2_k
+$$
+
+$H_o: Q^* = 0$ –\> No hay autocorrelación –\> Ruido blanco
+
+$H_i: Q^* \neq 0$ –\> Hay autocorrelación
+
+p-value = es la probabilidad de cometer un error de tipo I (falso positivo)
+
+$\alpha$ = nivel de significancia
+
+si $p-value > \alpha$ , fallamos en rechazar $H_o$
+
+```{r}
+gas_aug |>
+  features(.innov, box_pierce, lag = 8) #o ljung_box
+```
+
+## Pronósticos
+
+```{r}
+gas_fit |>
+  forecast(h = '2 years') |>
+  autoplot(aus_production) + 
+  facet_wrap(vars(.model),scales = 'free_y')
+```
+
+```{r}
+gas_fit2 <- aus_production |>
+  model(
+    stlf = decomposition_model(
+      #ESPECIFICAR LA DESCOMPOSICIÓN
+      STL(log(Gas)~season(window = 'periodic'), robust = TRUE),
+      #ESPECIFICAMOS EL MODELO PARA LA ESTACIONALIDAD
+      SNAIVE(season_year),
+      #ESPECIFICAMOS EL MODELO PARA LA SERIE DESESTACIONALIZADA
+      RW(season_adjust ~ drift())
+    ),
+    stlf2 = decomposition_model(
+      #ESPECIFICAR LA DESCOMPOSICIÓN
+      STL(log(Gas)~season(window = 'periodic'), robust = TRUE),
+      #SI NO SE ESPECIFICA EL MODELO PARA LA ESTACIONALIDAD, TOMA SNAIVE POR DEFAULT
+      #ESPECIFICAMOS EL MODELO PARA LA SERIE DESESTACIONALIZADA
+      NAIVE(season_adjust)
+    )
+  )
+gas_fit2
+```
+
+```{r}
+gas_fit2 |>
+  select(stlf) |> 
+  gg_tsresiduals()
+
+gas_fit2 |>
+  select(stlf2) |> 
+  gg_tsresiduals()
+```
+
+```{r}
+gas_fit2 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 8)
+```
+
+```{r}
+gas_fit2 |>
+  forecast(h = '5 years') |>
+  autoplot(aus_production, level = NULL)
+```
+
+```{r}
+gas_train <- aus_production |> 
+  filter_index(. ~ '2005 Q2')
+
+gas_fit2 <- gas_train |>
+  model(
+    stlf = decomposition_model(
+      #ESPECIFICAR LA DESCOMPOSICIÓN
+      STL(log(Gas)~season(window = 'periodic'), robust = TRUE),
+      #ESPECIFICAMOS EL MODELO PARA LA ESTACIONALIDAD
+      SNAIVE(season_year),
+      #ESPECIFICAMOS EL MODELO PARA LA SERIE DESESTACIONALIZADA
+      RW(season_adjust ~ drift())
+    ),
+    stlf2 = decomposition_model(
+      #ESPECIFICAR LA DESCOMPOSICIÓN
+      STL(log(Gas)~season(window = 'periodic'), robust = TRUE),
+      #SI NO SE ESPECIFICA EL MODELO PARA LA ESTACIONALIDAD, TOMA SNAIVE POR DEFAULT
+      #ESPECIFICAMOS EL MODELO PARA LA SERIE DESESTACIONALIZADA
+      NAIVE(season_adjust)
+    )
+  )
+gas_fit2
+```
+
+```{r}
+gas_fcst <- gas_fit2 |>
+  forecast(h = '5 years')
+
+gas_fcst
+
+gas_fcst |>
+  autoplot(aus_production, size = 1, level = NULL)
+
+gas_fcst |> 
+  autoplot(aus_production, size = 1, level = NULL) + 
+  facet_wrap(vars(.model), scales = 'free_y', ncol = 1) + 
+  theme(legend.position = 'none')
+```
+
+¿Cuál es mejor? Para ello cálculamos el error
+
+# Tipos de error
+
+## Errores dependientes de escala
+
+$e_t =y_t - \hat{y}_t$
+
+1.  $MAE = mean(|e_x|)$
+2.  $RMSE = \sqrt{mean(e^2_x)}$
+
+La razón por la que se utilizan mucho estas medidas es que son fáciles de interpretar. No se pueden usar para comparar una serie con otra por lo mismo que dependen de la escala de la propia serie.
+
+## Errores porcentuales
+
+$p_t = \frac{e_t}{y_t}(100)$
+
+1.  $MAPE = mean(|p_t|) = mean(|\frac{y_t - \hat{y}_t}{y_t}|)$
+
+Poseen la ventaja de no tener escala, por lo que se puede emplear para comparar distintas predicciones. El problema del MAPE es que si la variable puede tomar valores de 0, el error es indeterminado.
+
+## Error escalado
+
+Depende de si la serie tiene estacionalidad o no.
+
+Para variables no estacionales:
+
+$q_j = \frac{e_j}{\frac{1}{T-1}\sum_{t = 2}^{T}|y_t - \hat{y}_{t-1}|}$
+
+Para series estacionales:
+
+$q_j = \frac{e_j}{\frac{1}{T-m}\sum_{t = m+1}^{T}|y_t - \hat{y}_{t-m}|}$
+
+1.  $MASE = mean(|q_j|)$
+
+    $RMSSE = \sqrt{mean(q^2_j)}$
+
+Métricas de error en el modelo:
+
+```{r}
+accuracy(gas_fit2)
+#AQUÍ LE PASAMOS LA TABLA CON LOS MODELOS, CALCULA LOS ERRORES SOBRE LOS RESIDUOS
+```
+
+```{r}
+gas_fcst |> 
+  accuracy(aus_production)
+#CALCULA EL ERROR CON LOS DATOS DE TEST
+```
+
+## Combinación de Modelos
+
+```{r}
+gas_fit3 <- gas_fit2 |> 
+  mutate(
+    stl_combinado = (stlf + stlf2) / 2
+  )
+gas_fit3
+```
+
+```{r}
+gas_fit3 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 8)
+
+gas_fcst3 <- gas_fit3 |>
+  forecast(h = '5 years')
+
+gas_fcst3 |>
+  autoplot(aus_production, size = 1, level = NULL)
+
+gas_fcst3 |> 
+  autoplot(aus_production, size = 1, level = NULL) + 
+  facet_wrap(vars(.model), scales = 'free_y', ncol = 1) + 
+  theme(legend.position = 'none')
+```
+
+```{r}
+gas_fcst3 |> 
+  accuracy(aus_production)
+```
+
+```{r}
+gas_fit4 <- gas_train |> 
+  model(
+    stl_combi1 = combination_model(
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    )
+    ),
+    stl_combi_weights = combination_weighted(
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    ), weights = c(0.9, 1.1)
+    ),
+    combinado_sin_stl = combination_model(
+      SNAIVE(log(Gas)),
+      RW(log(Gas) ~ drift())
+    )
+    
+  )
+gas_fit4
+
+accuracy(gas_fit4) |> 
+  arrange(MAPE)
+```
+
+```{r}
+gas_fcst4 <- gas_fit4 |> 
+  forecast(h = "5 years")
+
+gas_fcst4 |> 
+  autoplot(aus_production|> filter_index("1990 Q1" ~ .))
+
+gas_fcst4 |> 
+  accuracy(aus_production) |> 
+  arrange(MAPE)
+```
+
+# Mejorando el modelo
+
+## Transformación de Box-Cox
+
+Consiste en jugar con valores de landa para estavilizar la varianza de la serie:
+
+Si $\lambda = 0$ , log(Y)
+
+Si $\lambda \neq 0$, $(Y^\lambda - 1) / \lambda$
+
+```{r}
+gas_fit5 <- gas_train |> 
+  model(
+    stl_combi = combination_model(
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    )
+    ),
+    stl_combi_boxcox = combination_model(
+      decomposition_model(
+       STL(box_cox(Gas, lambda = 0.1205) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(box_cox(Gas, lambda = 0.1205) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    )
+    ),
+    stl_combi_weights = combination_weighted(
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(log(Gas) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    ), weights = c(0.9, 1.1)
+    ),
+    stl_combi_weights_boxcox = combination_weighted(
+      decomposition_model(
+       STL(box_cox(Gas, lambda = 0.1205) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(box_cox(Gas, lambda = 0.1205) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    ), weights = c(0.9, 1.1)
+    )
+  )
+gas_fit5
+
+gas_fit5 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 8)
+
+accuracy(gas_fit5) |> 
+  arrange(MAPE)
+```
+
+```{r}
+gas_fcst5 <- gas_fit5 |> 
+  forecast(h = "5 years")
+
+gas_fcst5 |> 
+  autoplot(aus_production|> filter_index("1990 Q1" ~ .))
+```
+
+# Destransformación
+
+Si $\lambda = 0, y_t = exp(w_t)$
+
+Si $\lambda \neq 0, y_t = (\lambda w_t + 1)^{1/\lambda}$
+
+El problema de hacer la destransformación es que le estamos metiendo sesgo. De tal manera, se debe hacer la siguiente corrección:
+
+$$
+y_t =
+\begin{cases} 
+\exp(w_t) \left[1 + \frac{\sigma_h^2}{2} \right] & \text{si } \lambda = 0 \\
+(\lambda w_t + 1)^{1/\lambda} \left[1 + \frac{\sigma_h^2 (1 - \lambda)}{2(\lambda w_t + 1)^2} \right] & \text{en otro caso}
+\end{cases}
+$$
