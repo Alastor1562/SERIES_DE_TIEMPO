@@ -1,0 +1,92 @@
+---
+title: "Parcial 1"
+author: "Samuel Gómez Jiménez"
+format: html
+editor: visual
+---
+
+# Sección 1
+
+1.  **La prueba de Ljung-Box es útil para escoger un buen modelo de pronóstico**
+
+Recordemos que uno de los lineamientos para decir que un modelo es bueno es que los residuos no estén autocorrelacionados. La prueba de Ljung-Box nos ayuda a determinar, por medio de prueba de hipótesis, si es que los residuos de nuestro modelo están autocorrelacionados o no. La prueba se plantea de la siguiente manera:
+
+$H_o$: Los residuos no están autocorrelacionados
+
+$H_i$: Hay correlación
+
+Si el p-value (% de cometer un error de tipo I) está por debajo del $\alpha$ establecido, rechazamos Ho. De lo contrario, si el p-value de la prueba está por encima, fallamos en rechazar Ho.
+
+2.  **El MAPE es mejor que el RMSE para medir la precisión de un pronóstico, porque es más fácil de explicar.**
+
+Dejando de lado el tema de la facilidad de explicar, el MAPE es mayormente empleado porque es porcental. Aunque el RMSE se utiliza frecuentemente para determinar el error de un modelo, el problema de este es que no se puede utilizar para comparar la certeza de un modelo contra otro porque el RMSE depende de la escala del objeto a medir. La ventaja que poseé el MAPE es que éste se expresa de manera porcentual, por lo que la escala del objeto de estudio no es un problema cuando queremos comparar dicho error contra el de otros modelos.
+
+3.  **Si los residuos del modelo no son ruido blanco, entonces no se puede hacer pronósticos.**
+
+Los residuos del modelo debería ser la parte estocástica/aleatoria del fenómeno que no puede ser modelado. De este mismo supuesto nace que la media de dichos debe ser medio con una varianza constante y aproximadamente distribuidos de manera normal. Es por ello que si identificamos cierta tendencia o estacionalidad en los residuos, significa que el modelo no capturó estos mismos elementos y es muy probable que el pronóstico realizado con éste falle en reflejarlos. Cuando los residuos tienen la forma de ruido blanco, significa que el modelo si capturó tendencia y estacionalidad, mejorando el forecast.
+
+4.  **El método de pronóstico de la media nunca es un buen modelo de pronóstico.**
+
+Aunque el modelo de la media es bastante simple en naturaleza, de hecho este resulta ser el mejor modelo cuando se trata de una caminata aleatoria. Las caminatas aleatorias se caracterizan por tener un valor esperado de 0 y varianza constante, por lo que el mejor pronóstico de este no es que suba o baje, sino que el valor no cambie respecto a la media, para lo cuál el modelo de la media es perfecto para representarlo.
+
+# Sección 2
+
+1.  **Usando las figuras 1-2, describa la movilidad de personas hacia centros de trabajo en Jalisco. Note que hubo algunos periodos mayores del famoso “#QuédateEnCasa”, en donde se redujo sustancialmente la movilidad. Cuidadosamente comente respecto a estos interesantes efectos del COVID, así como cualquier otra variación que identifiquen en la serie y cómo los encierros, periodos escolares y festividades son evidentes.**
+
+Podemos ver que la serie empieza con un caída pronuncia a mediados del Q1 de 2020, que es cuando empezó el encierro por la cuarentena.
+
+En la serie de datos podemos apreciar una tendencia a la alza constante en general. Es interesante como la tendencia permanece constante en cada año con un descenso de nivel al final del año. Así mismo podemos ver cierta estacionalidad anual caracterizada por un incremento de mobilidad en periodos vacacionales como verano e invierno; y dicha estacionalidad se ve más pronunciada a medida que pasan los años, indicando la recuperación de niveles de mobilidad que veíamos muy a prinicipio de 2020.
+
+En cuánto a la estacionalidad semanal, vemos un movimiento bajo a través de la semana, con un incremento significativo en fines de semana. Esto es lógico cuando pensamos que a través de la semana hay clases y en los fines de semana se suele salir a pasear más. Lo interesante es ver que, incluso ante el encierro y descenso de mobilidad, esta estacionalidad se mantiene constante a lo largo de las semanas y años, dándonos a entender que se puede considerar como una especie de supuesto respecto a la serie que podríamos apreciar incluso antes de la pandemia.
+
+Finalmente, podemos ver bastantes outliers a lo largo de la serie donde la mobilidad desciende hasta 50%, momentos que me atrevo a decir que se deben a la campaña de #QuédateEnCasa.
+
+2.  **Para la descomposición STL de la figura 3, discuta qué se muestra en cada panel. ¿Consideraría útil realizar una transformación logarítmica? Describa como la pandemia y festividades afectó a los componentes de tendencia, estacionalidad, y residual.**
+
+-   ***percent_change:*** Es la serie original. Esta presenta cambios porcentuales considerablemente pronunciados a lo largo del periodo de observación, por lo que sí, si consideraría una transformación logarítimica para suavizar la varianza de la serie.
+
+-   ***trend*****:** Es la parte de tendencia de la serie, la cuál demuestra lo antes mencionado, que la serie sigue una tendencia perfectamente constante a la alza.
+
+-   ***season_year:*** Es la estacionalidad anual de la serie. Esta demuestra una alza de movimiento en periodos vacacionales, especíalmente verano y un tanto en invierno. Así mismo, refleja la el descenso en nivel que sufre la tendencia al final de cada año en ese pico pronunciado hacia abajo.
+
+-   ***season_week:*** Es la estacionalidad semanal de la serie. Demuestra lo antes mencionado, que la estacionalidad semanal se puede dar por sentado y extrapolar fuera del periodo observado, pues nunca cambia a pesar de los eventos que impactan a la serie de manera significativa.
+
+-   ***remainder:*** Por último, estos son los residuos de la serie. Podemos observar que, en efecto, poseen forma de ruido blanco con media centrada en 0. También podemos apreciar que capturó correctamente los outliers de la serie causados por el efecto #QuédateEnCasa. Estos últimos se pueden apreciar en los picos negativos pronunciados. También me parece interesante mencionar que en esta serie, el periodo pre-pandemia es considerado un outlier capturado por los residuos, ya que en este caso, el periodo "normal" es atípico al periodo pandemia que refleja la serie en general.
+
+3.  ***Se le ha pedido que realice pronósticos para las siguientes 4 semanas con respecto a la movilidad de las personas. Considere aplicar a los datos cada uno de los métodos y modelos que se mencionan debajo. Comente, de manera concisa, si cada opción es viable o no viable.***
+
+<!-- -->
+
+a.  ***Método seasonal naïve utilizando estacionalidad semanal***
+
+**No viable** - Tan solo estaría repitiendo el patrón semanal señalado en la Figura 2 en linea recta, sin capturar la tendencia a subir de nivel cada semana como inidica la tendencia de la descomposición STL.
+
+b.  ***Método Naïve***
+
+**No viable** - El más simplista de todos. Tan solo nos mostraía una línea recta horizontal a partir del último dato capturado, ignorando por completo la tendencia a la alza a través del tiempo y los ciclos estacionales, tanto anuales como semanales.
+
+c.  ***Una descomposición STL sin transformaciones combinado con SNAIVE para modelar la estacionalidad y drift para la serie desestacionalizada.***
+
+**Viable -** Cómo demuestra la descomposición STL de la figura 3, esta captura bastante bien la tendencia y estacionalidades a priori que se pueden apreciar en la serie, así como unos buenos residuos que detectaron los outliers de la misma, por lo que considero esta de las mejores propuestas de modelo hasta el momento considerando la información en mano.
+
+-   *Estacionalidad* - Considero SNAIVE perfecto para las estacionalidades porque vemos que, en efecto, existe una estacionalidad constante y repetida, la cuál podría ser capturada muy bien por este modelo.
+
+-   *Tendencia* - Drift es perfecto para la tendencia porque vemos que esta es una línea recta de inicio a fin, tal cuál lo que veríamos en todo modelo de drift.
+
+d.  ***Aplicar una transformación logarítmica y realizar una combinación del modelo de media y SNAIVE.***
+
+**No viable** - No lo veo como mala idea para intentar, pero no creo que refleje el comportamiento de la serie a la larga. Me parece buena idea suavizar la varianza de la serie con la transformación logarítmica, pero la media tan solo trazaría una linea horizontal en la media de la serie con las variaciones estacionales gracias a SNAIVE, pero un forecast con este modelo incrementaría en error a mayor tiempo quieras predecir ya que se alejaría del valor real que tiende a la alza.
+
+e.  ***¿Considera que alguna otra especificación de modelo podría ser más adecuada? Justifique.***
+
+Yo propondría una descomposicón STL con transformación Box-Cox que combine SNAIVE para la estacionalidad y drift para la tendencia. El objetivo del Box-Cox sería suavizar las variaciones de la serie buscando la $\lambda$ óptima. Incluso se podría considerar hacer una combinación con pesos de este modelo, con el STl anterior dependiendo de los resultados individuales.
+
+# Seccción 3
+
+Mencione y justifique detalladamente si es conveniente o no realizar pronósticos para series financieras (que se transan en un mercado bursátil), o cualquier otra que siga un proceso de caminata aleatoria:
+
+$$
+y_t = y_{t-1}+\epsilon_t
+$$
+
+Claro que es conveniente realizar pronósticos para series de estilo caminata aleatoria. Este tipo de procesos se caracterizan por estar compuestos por una parte determinista y una parte estocástica, donde ambas dependen del tiempo. Este tipo de modelos de pronóstico y descomposiciones que hemos visto en clase nos ayudan a desomponer el comportamiento de estos fenómenos (especialmente las series financieras) y analizarlos con mayor facilidad. Si pensamos en las series que hemos visto en clase, estamos capturando la parte estocástica (aleatoria) en los residuos del modelo, determinamos los ciclos estacionales del mercado a través de la estacionalidad y tratamos de predecir la trayectoria de la parte determinista del activo por medio de la tendencia. Por lo que sí, los pronósticos son importantes para el correcto análisis y manejo de activos bursátiles.

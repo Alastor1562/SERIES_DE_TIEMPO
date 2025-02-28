@@ -1,0 +1,101 @@
+---
+title: "Semana 6 - Suavización Exponencial"
+author: "Sam"
+format: html
+editor: visual
+---
+
+# Suavización Exponencial
+
+## Promedios ponderados
+
+$$
+\hat{Y}_{T+1}=\alpha Y_T + \alpha (1-\alpha)Y_{T-1} + \alpha (1-\alpha)^2 Y_{T-2} + ...
+$$
+
+donde: $0<\alpha <1$
+
+Esta fórmula nos indica que el peso de las variables en el promedio se va reduciendo a medida que el dato es se vuelve más viejo.
+
+"El valor del dato disminuye de manera exponencial, un alpha grande indica una caída más fuerte e inmediata"
+
+Si $\alpha =1$ , se vuelve un modelo NAIVE, donde todo el peso se va al último valor
+
+## Pronósticos
+
+**Ecuación del pronóstico:**
+
+$$
+\hat{Y}_{T+\frac{n}{t}}=l_t
+$$
+
+**Ecuación de nivel:**
+
+$$
+l_t=\alpha Y_t + (1-\alpha)l_{t-1}
+$$
+
+donde $l_0$ es el estado inicial
+
+Lo usamos cuando nuestros datos no tienen ni tendencia ni estacionalidad
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+```{r}
+
+```
+
+## Modelo para series con tendencia - Holt
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + h b_t
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha y_t + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) b_{t-1}
+$$
+
+## Modelo para series con tendencia amortiguada
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + (\phi + \phi^2 + \dots + \phi^h) b_t
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha y_t + (1 - \alpha)(l_{t-1} + \phi b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) \phi b_{t-1}
+$$
+
+Si $\phi =1$, la tendencia vuelve a ser lineal
+
+## Modelo de Holt-Winters
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + h b_t + s_{t+h-m(k+1)}
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha (y_t - s_{t-m}) + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) b_{t-1}
+$$
+
+**Ecuación de la estacionalidad:** $$
+s_t = \gamma (y_t - l_{t-1} - b_{t-1}) + (1 - \gamma) s_{t-m}
+$$
+
+### Conversión a tipo multiplicativo de Holt-Winters
+
+![](HWM.jpg){width="349"}
