@@ -1,0 +1,67 @@
+---
+title: "Variables Rezagadas"
+format: html
+editor: visual
+---
+
+$$
+Y_t=\beta_0+\beta_1x_t+\beta _2x_{t-1}...
+$$
+
+```{r}
+#| message: false
+#| 
+library(tidyverse)
+library(fpp3)
+library(plotly)
+```
+
+```{r}
+insurance
+```
+
+```{r}
+insurance |> 
+  pivot_longer(Quotes:TVadverts) |> 
+  autoplot()+ 
+  facet_wrap(vars(name), ncol=1, scales='free_y') +
+  theme(legend.position = 'none')
+```
+
+Vamos a hacer un modelo con esta estrcutura:
+
+$$
+Y_t=\beta_0+\beta_1x_t+\beta _2x_{t-1}+\beta _3x_{t-2}+\beta _4x_{t-3}
+$$
+
+```{r}
+fit <- insurance |> 
+  mutate(Quotes = c(rep(NA,3), Quotes[4:40])) |> 
+  model(
+    lag0 = ARIMA(Quotes ~ pdq(d=0) + TVadverts),
+    lag1 = ARIMA(Quotes ~ pdq(d=0) + TVadverts + lag(TVadverts)),
+    lag2 = ARIMA(Quotes ~ pdq(d=0) + TVadverts + lag(TVadverts) +
+                   lag(TVadverts, 2)),
+    lag3 = ARIMA(Quotes ~ pdq(d=0) + TVadverts + lag(TVadverts) + 
+                   lag(TVadverts, 2) + lag(TVadverts, 3))
+  )
+
+glance(fit) |> 
+  arrange(AICc)
+```
+
+```{r}
+fit_best <- insurance |> 
+  model(
+    lagh1 = ARIMA(Quotes ~ pdq(d=0) + TVadverts + lag(TVadverts)))
+
+fit_best |> 
+  report()
+```
+
+```{r}
+fit_best |> 
+  augment() |> 
+  autoplot(Quotes, color='dodgerblue', size=1) + 
+  geom_line(aes(y=.fitted), color='firebrick', size=1)
+```

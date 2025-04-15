@@ -1,0 +1,194 @@
+---
+title: "Semana 6 - Suavización Exponencial"
+author: "Sam"
+format: html
+editor: visual
+---
+
+# Suavización Exponencial
+
+## Promedios ponderados
+
+$$
+\hat{Y}_{T+1}=\alpha Y_T + \alpha (1-\alpha)Y_{T-1} + \alpha (1-\alpha)^2 Y_{T-2} + ...
+$$
+
+donde: $0<\alpha <1$
+
+Esta fórmula nos indica que el peso de las variables en el promedio se va reduciendo a medida que el dato es se vuelve más viejo.
+
+"El valor del dato disminuye de manera exponencial, un alpha grande indica una caída más fuerte e inmediata"
+
+Si $\alpha =1$ , se vuelve un modelo NAIVE, donde todo el peso se va al último valor
+
+## Pronósticos
+
+**Ecuación del pronóstico:**
+
+$$
+\hat{Y}_{T+\frac{n}{t}}=l_t
+$$
+
+**Ecuación de nivel:**
+
+$$
+l_t=\alpha Y_t + (1-\alpha)l_{t-1}
+$$
+
+donde $l_0$ es el estado inicial
+
+Lo usamos cuando nuestros datos no tienen ni tendencia ni estacionalidad
+
+## Modelo para series con tendencia - Holt
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + h b_t
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha y_t + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) b_{t-1}
+$$
+
+## Modelo para series con tendencia amortiguada
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + (\phi + \phi^2 + \dots + \phi^h) b_t
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha y_t + (1 - \alpha)(l_{t-1} + \phi b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) \phi b_{t-1}
+$$
+
+Si $\phi =1$, la tendencia vuelve a ser lineal
+
+## Modelo de Holt-Winters
+
+**Ecuación para el pronóstico:** $$
+\hat{y}_{t+h} = l_t + h b_t + s_{t+h-m(k+1)}
+$$
+
+**Ecuación del nivel:** $$
+l_t = \alpha (y_t - s_{t-m}) + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+**Ecuación de la tendencia:** $$
+b_t = \beta^* (l_t - l_{t-1}) + (1 - \beta^*) b_{t-1}
+$$
+
+**Ecuación de la estacionalidad:** $$
+s_t = \gamma (y_t - l_{t-1} - b_{t-1}) + (1 - \gamma) s_{t-m}
+$$
+
+### Conversión a tipo multiplicativo de Holt-Winters
+
+![](HWM.jpg){width="349"}
+
+Resumen:
+
+![](Fotos%20Clase/Parámetros%20suavización%20exponencial.jpg){width="540"}
+
+Para configurar el modelo debemos de ver
+
+```{r}
+#| message: false
+library(tidyverse)
+library(fpp3)
+library(tsibble)
+library(feasts)
+library(fable)
+```
+
+```{r}
+mex_ts_tbl <- tribble(
+  ~code, ~description, ~seasonal, ~ units,
+  "MAUINSA", "Mexican Auto Imports", TRUE, "Thousands of Units",
+  "HOHWMN03MXM661N", "Hours Worked: Manufacturing: Monthly for Mexico", TRUE, "Index 2015=100",
+  "OPCNSH01MXM661N", "Total Cost of Social Housing Construction for Mexico", FALSE, "Index 2015=100",
+  "LCEAMN04MXM661N", "Manufacturing: Real Monthly Earnings for Mexico", TRUE, "Index 2015=100",
+  "LRHUTTFEMXM156N", "Monthly Unemployment Rate Female: 15 Years or over for Mexico", TRUE, "Percent",
+  "LRHUTTMAMXM156N", "Monthly Unemployment Rate Male: 15 Years or over for Mexico", TRUE, "Percent",
+  "MEDLISPRIPERSQUFEE33020", "Median Listing Price per Square Feet in Mexico, MO (CBSA)", FALSE, "USD",
+  "IMPMX", "U.S. Imports of Goods by Customs Basis from Mexico", TRUE, "Millions of Dollars",
+  "MEXPRMNTO01IXOBM", "Manufacturing for Mexico", TRUE, "Index 2015=100",
+  "MEXXTIMVA01NCMLM", "Imports: Commodities for Mexico", FALSE, "Mexican Peso"
+)
+
+mex_ts_names <- mex_ts_tbl |> 
+  pull(code)
+```
+
+```{r}
+tsbls <- tidyquant::tq_get(
+  mex_ts_names,
+  get = "economic.data",
+  from = "1980-01-01"
+) |> 
+  mutate(
+    date = yearmonth(date)
+  ) |> 
+  as_tsibble(index = date, key = symbol)
+
+tsbls
+```
+
+```{r}
+tsbls |> 
+  autoplot(price) + 
+  facet_wrap(vars(symbol), scales = "free") + 
+  theme(legend.position = "none")
+```
+
+```{r}
+tsbls_fit <- tsbls |> 
+  model(
+    ets = ETS(log(price))
+  ) 
+
+tsbls_fit
+
+tsbls_fit |> 
+  augment() |> 
+  features(.innov, features = ljung_box, lag = 24)
+
+tsbls_fcst <- tsbls_fit |> 
+  forecast(h = "5 years") 
+
+tsbls_fcst |> 
+  autoplot(tsbls) +
+  facet_wrap(vars(symbol), scales = "free")
+```
+
+Si no específicamos los parámetros para el modelo ETS, R elije aquellos que cree mejor bajo un criterio de optimización interno.
+
+En la práctica, cuando hay estacionalidad, esta se empata con el error
+
+```{r}
+tsbls |> 
+  pivot_wider(
+    names_from = symbol,
+    values_from = price
+  )
+```
+
+Con estas lineas de codigo podemos dinamizar las tablas
+
+```{r}
+tsbls |> 
+  pivot_wider(
+    names_from = symbol,
+    values_from = price
+  ) |> 
+  pivot_longer(
+    cols = - date,
+    names_to = "variable",
+    values_to = "valor"
+  )
+```

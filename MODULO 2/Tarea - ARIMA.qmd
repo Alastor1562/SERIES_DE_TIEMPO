@@ -1,0 +1,227 @@
+---
+title: "Tarea - ARIMA"
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+# Visualización de Datos
+
+Graficamos los datos para observar su comportamiento
+
+```{r}
+aus_production |>
+  autoplot(Gas)
+```
+
+Obtenemos los datos de entrenamiento
+
+```{r}
+gas_train <- aus_production |> 
+  filter_index(. ~ '2005 Q2')
+```
+
+Obtenemos el lambda óptimo de los datos en caso de realizar una transformación Box-Cox en el futuro
+
+```{r}
+lambda <- gas_train |> 
+  features(Gas, features = guerrero)
+
+lambda <- as.numeric(lambda)
+```
+
+# Mejor modelo anterior
+
+De clases anteriores, el mejor modelo que habíamos encontrado fue el siguiente:
+
+```{r}
+gas_fit <- gas_train |> 
+  model(
+    stl_combi = combination_model(
+      decomposition_model(
+       STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+       RW(season_adjust ~ drift())
+    ),
+      decomposition_model(
+       STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+       NAIVE(season_adjust)
+    )
+    )
+  )
+```
+
+Consiste en un modelo combinado de de 2 descomposiciones STL:
+
+-   Una con estacionalidad modelada con SNAIVE y su tendencia modelada por Drift
+
+-   La otra tan solo es una descomposición con tendencia modelada por NAIVE
+
+Ambas con transformaciones Box-Cox
+
+```{r}
+gas_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+```
+
+Observamos que los residuos de este modelo están un tanto autocorrelacionados
+
+```{r}
+gas_fcst <- gas_fit |> 
+  forecast(h = '5 years') 
+
+gas_fcst |> 
+  autoplot(aus_production |> filter_index("1990 Q1" ~ .))+
+  facet_wrap(~.model, ncol = 2)
+```
+
+El ajuste de la proyección a los datos de prueba parece estar bastante bien, aunque este modelo parecer estar subestimando los picos bajos de estacionalidad
+
+```{r}
+gas_fcst |> 
+  accuracy(aus_production) |> 
+  select(.model:.type, MAPE, MAE) |> 
+  arrange(MAPE)
+```
+
+Consideraremos este MAPE como el benchmark a vencer con los modelos ETS y ARIMA
+
+# Suavización Exponencial - Modelo ETS
+
+Primero realizamos una descomposición STL con los parámetros automáticos
+
+```{r}
+gas_train |> 
+  model(stl = STL(log(Gas) ~ season(window = "periodic"), robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
+
+Un ETS con esta descomposición asumiría una tendencia con suavización exponencial (Ad) y estacionalidad constante (A). Empatamos el error con la estacionalidad (A).
+
+Ahora hacemos una descomposición con ventanas definidas:
+
+```{r}
+gas_train |> 
+  model(stl = STL(log(Gas) ~ trend(window = 12) + season(window = 4), robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
+
+El ETS luciría igual al anterior, pero considerando una estacionalidad variable (M)
+
+```{r}
+gas_fit2 <- gas_train |> 
+  model(
+    stlf_ETS1 = decomposition_model(
+          STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+          ETS(season_year ~ error("A") + trend("N") + season("A")),
+          ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+        ),
+    stlf_ETS2 = decomposition_model(
+          STL(box_cox(Gas, lambda = lambda) ~ trend(window = 12) + season(window = 4), robust = TRUE),
+          ETS(season_year ~ error("M") + trend("N") + season("M")),
+          ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+        ),
+    stlf_ETS3 = decomposition_model(
+          STL(box_cox(Gas, lambda = lambda) ~ trend(window = 12) + season(window = 4), robust = TRUE),
+          ETS(season_year ~ error() + trend() + season()),
+          ETS(season_adjust ~ error() + trend() + season())
+        )
+  )
+```
+
+```{r}
+gas_fit2 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+
+gas_fcst2 <- gas_fit2 |> 
+  forecast(h = '5 years') 
+
+gas_fcst2 |> 
+  autoplot(aus_production |> filter_index("1990 Q1" ~ .))+
+  facet_wrap(~.model, ncol = 1)
+
+gas_fcst2 |> 
+  accuracy(aus_production) |> 
+  select(.model:.type, MAPE, MAE) |> 
+  arrange(MAPE)
+```
+
+El MAPE incrementó significativamente, por lo que parece que el ETS no es un modelo apropiado para estos datos. El mejor de las 3 propuestas fue aquel con una descomposición STL con ventanas fijas y parámetros de ETS pre-establecidos.
+
+# Modelo ARIMA
+
+Primero determinamos el orden de diferenciación d
+
+```{r}
+aus_production |> 
+  features(Gas, unitroot_ndiffs)
+```
+
+```{r}
+aus_production |> 
+  features(Gas |> difference(1), unitroot_kpss)
+```
+
+La prueba de kpss nos indica que los datos ya son estacionarios con esta sola diferenciación.
+
+Ahora observamos las gráficas de autocorrelación de los residuos para determinar el orden p y q
+
+```{r}
+aus_production |> 
+  gg_tsdisplay(Gas |> difference(1), plot_type = 'partial', lag_max = 25)
+```
+
+Observamos en la gráfica de ACF que los resagos decaen exponencialmente, por lo que q = 0.
+
+En la gráfica parcial podemos ver 3 resagos signifcativos consecutivos por lo que p podría ser 3 o incluso 2.
+
+```{r}
+gas_fit3 <- gas_train |> 
+  model(
+    ARIMA1 = decomposition_model(
+       STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+       ARIMA(season_adjust ~ pdq(3,1,0) + PDQ(0,0,0))
+    ),
+    ARIMA2 = decomposition_model(
+       STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+       ARIMA(season_adjust ~ pdq(2,1,0) + PDQ(0,0,0))
+    ),
+    ARIMA3 = decomposition_model(
+       STL(box_cox(Gas, lambda = lambda) ~ season(window = "periodic"), robust = TRUE),
+       ARIMA(season_adjust ~ PDQ(0,0,0),
+                   stepwise = FALSE, approximation = FALSE))
+    )
+```
+
+```{r}
+gas_fit3 |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+
+gas_fcst3 <- gas_fit3 |> 
+  forecast(h = '5 years') 
+
+gas_fcst3 |> 
+  autoplot(aus_production |> filter_index("1990 Q1" ~ .))+
+  facet_wrap(~.model, ncol = 1)
+
+gas_fcst3 |> 
+  accuracy(aus_production) |> 
+  select(.model:.type, MAPE, MAE) |> 
+  arrange(MAPE)
+```
+
+El mejor de los ARIMAS fue aquel que buscó automáticamente los mejores parámetros
+
+# Conclusión
+
+Estamos viendo que complicar el modelo no siempre nos va a dar mejores resultados, pues incluso los modelos más simples que vimos a inicios del curso le están ganando al modelado con ETS o ARIMA, aunque este último estuvo bastante cerca.

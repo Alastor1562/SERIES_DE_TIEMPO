@@ -1,0 +1,157 @@
+---
+title: "Dealing with some practical issues in time series"
+format: 
+  html:
+    embed-resources: true
+    toc: true
+---
+
+```{r}
+#|message: false
+library(tidyverse)
+library(fpp3)
+```
+
+## Outliers
+
+```{r}
+tourism |>
+  filter(
+    Region == "Adelaide Hills", Purpose == "Visiting"
+  ) |>
+  autoplot(Trips) +
+  labs(title = "Quarterly overnight trips to Adelaide Hills",
+       y = "Number of trips")
+```
+
+```{r}
+ah_decomp <- tourism |>
+  filter(
+    Region == "Adelaide Hills", Purpose == "Visiting"
+  ) |>
+  # Fit a non-seasonal STL decomposition
+  model(
+    stl = STL(Trips ~ season(period = 1), robust = TRUE)
+  ) |>
+  components()
+ah_decomp |> autoplot()
+```
+
+```{r}
+outliers <- ah_decomp |>
+  filter(
+    remainder < quantile(remainder, 0.25) - 3*IQR(remainder) |
+    remainder > quantile(remainder, 0.75) + 3*IQR(remainder)
+  )
+outliers
+```
+
+## Valores omitidos
+
+```{r}
+ah_miss <- tourism |>
+  filter(
+    Region == "Adelaide Hills",
+    Purpose == "Visiting"
+  ) |>
+  # Remove outlying observations
+  anti_join(outliers) |>
+  # Replace with missing values
+  fill_gaps()
+ah_fill <- ah_miss |>
+  # Fit ARIMA model to the data containing missing values
+  model(ARIMA(Trips)) |>
+  # Estimate Trips for all periods
+  interpolate(ah_miss)
+
+ah_miss
+ah_fill
+
+ah_fill |>
+  # Only show outlying periods
+  right_join(outliers |> select(-Trips))
+```
+
+```{r}
+ah_fill |>
+  autoplot(Trips) +
+  autolayer(ah_fill |> filter_index("2002 Q3"~"2003 Q1"),
+    Trips, colour="dodgerblue", linewidth = 3) +
+  labs(title = "Quarterly overnight trips to Adelaide Hills",
+       y = "Number of trips")
+```
+
+## Mantener los pronósticos positivos
+
+```{r}
+egg_prices <- prices |> filter(!is.na(eggs))
+egg_prices |>
+  model(ETS(eggs ~ trend("A"))) |>
+  forecast(h = 50) |>
+  autoplot(egg_prices) +
+  labs(title = "Annual egg prices",
+       y = "$US (in cents adjusted for inflation) ",
+       caption = "The forecasts go below zero! That doesn't make any sense") +
+  geom_hline(yintercept = 0, color = "firebrick")
+
+```
+
+```{r}
+egg_prices |>
+  model(ETS(log(eggs) ~ trend("A"))) |>
+  forecast(h = 100) |>
+  autoplot(egg_prices) +
+  labs(title = "Annual egg prices",
+       y = "$US (in cents adjusted for inflation) ",
+       caption = "Using a log transformation, we prevent the forecasts to go below zero.") +
+  geom_hline(yintercept = 0, color = "firebrick")
+```
+
+## Mantener los pronósticos dentro de cierto rango
+
+Transformación logit escalada
+
+$$
+y=\log \left(\frac{x-a}{b-x}\right)
+$$
+
+$$
+w = \log (x)\\
+w = \exp(\log(x)) = x
+$$
+
+Para dar "reversa" a la transformación, necesitamos:
+
+$$
+x=\frac{(b-a) e^y}{1+e^y}+a
+$$
+
+Lo ponemos en una función:
+
+```{r}
+scaled_logit <- function(x, lower = 0, upper = 1) {
+  log((x - lower) / (upper - x))
+}
+inv_scaled_logit <- function(x, lower = 0, upper = 1) {
+  (upper - lower) * exp(x) / (1 + exp(x)) + lower
+}
+my_scaled_logit <- new_transformation(
+                    scaled_logit, inv_scaled_logit)
+```
+
+```{r}
+egg_prices |>
+  model(
+    ETS(my_scaled_logit(eggs, lower = 50, upper = 400)
+          ~ trend("A"))
+  ) |>
+  forecast(h = 50) |>
+  autoplot(egg_prices) +
+  labs(title = "Annual egg prices",
+       y = "$US (in cents adjusted for inflation) ") +
+  geom_hline(yintercept = 50, color = "firebrick", linetype = "dashed")
+```
+
+```{r}
+
+```

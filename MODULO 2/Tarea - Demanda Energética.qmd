@@ -1,0 +1,226 @@
+---
+title: "Forecasting electricity demand"
+format: 
+  html:
+    embed-resources: true
+editor: visual
+---
+
+```{r}
+#| message: false
+#| 
+library(tidyverse)
+library(fpp3)
+library(plotly)
+```
+
+# Preparación de datos
+
+```{r}
+vic_elec
+
+elec <- vic_elec |> 
+  index_by(Hour = ~ lubridate::floor_date(., "1 hour")) |> 
+  summarise(
+    Demand = sum(Demand),
+    Temperature = mean(Temperature),
+    Holiday = any(Holiday)
+  ) |> 
+  mutate(
+    hora = hour(Hour)
+  )
+elec
+```
+
+# Crossvalidation
+
+```{r}
+elec_train <- elec |> 
+  filter_index(. ~ "2014-10-31")
+
+elec_test <- elec |> 
+  filter_index("2014-11-01" ~ .)
+```
+
+# Análisis de Variables
+
+## Series
+
+```{r}
+p <- elec_train |> 
+  autoplot(Demand, color = "darkorange2")
+
+ggplotly(p, dynamicTicks = TRUE) |> 
+  rangeslider()
+```
+
+```{r}
+p <- elec_train |> 
+  autoplot(Temperature, color = "seagreen")
+
+ggplotly(p, dynamicTicks = TRUE) |> 
+  rangeslider()
+```
+
+Identificamos 3 tipos de estacionalidad:
+
+-   Diaria
+
+-   Semanal
+
+-   Anual
+
+## Scatter plot
+
+```{r}
+elec_train |> 
+  ggplot(aes(x = Temperature, y = Demand)) +
+  geom_point(alpha = 0.3)
+```
+
+```{r}
+elec_train |> 
+  ggplot(aes(x = Temperature, y = Demand, color = hora)) +
+  geom_point(alpha = 0.5) +
+  scale_color_viridis_c()
+
+elec_train |> 
+  ggplot(aes(x = Temperature, y = Demand, color = Holiday)) +
+  geom_point(alpha = 0.5) +
+  scale_color_brewer(palette = "Paired")
+```
+
+# Descomposición
+
+Realizamos la descomposición de la serie de demanda con las estacionalidades encontradas
+
+```{r}
+elec_train |> 
+  model(
+    STL(Demand ~ season(period = "year", window = "periodic") + 
+          season(period = "week", window = "periodic") +
+          season(period = "day", window = "periodic")
+          )
+  ) |> 
+  components() |> 
+  autoplot()
+```
+
+# Modelo de Referencia
+
+```{r}
+elec_fit <- elec_train |> 
+  model(
+    stl_reg = decomposition_model(
+      STL(Demand ~ season(period = "year", window = "periodic") + 
+          season(period = "week", window = "periodic") +
+          season(period = "day", window = "periodic")
+          ),
+      TSLM(season_adjust ~ Temperature + I(Temperature^2) + Holiday),
+      # SNAIVE(season_year),
+      # SNAIVE(season_week),
+      SNAIVE(season_day)
+    )
+  )
+
+elec_fit |> 
+  report()
+```
+
+Resumen del modelo y ajuste sobre el entrenamiento:
+
+```{r}
+elec_aug <- elec_fit |> augment()
+
+p <- elec_aug |> 
+  ggplot(aes(x = Hour)) +
+  geom_line(aes(y = Demand)) +
+  geom_line(aes(y = .fitted), color = "firebrick")
+
+ggplotly(p, dynamicTicks = TRUE) |> 
+  rangeslider()
+```
+
+Error sobre el entrenamiento:
+
+```{r}
+elec_fit |> 
+  gg_tsresiduals(lag_max = 72)
+
+elec_fit |> 
+  accuracy()
+```
+
+Visualización del forecast:
+
+```{r}
+elec_fcst <- elec_fit |>
+  forecast(elec_test)
+
+p <- elec_fcst |> 
+  autoplot(elec |> filter_index("2014-10-01" ~ .), level = NULL) #+ 
+  # theme(legend.position = "top")
+
+ggplotly(p, dynamicTicks = TRUE) |> 
+  rangeslider()
+```
+
+Error sobre la predicción (Valor a superar):
+
+```{r}
+elec_fcst |> 
+  accuracy(elec)
+```
+
+# Modelo Optimizado
+
+```{r}
+lambda <- elec_train %>% 
+  features(Demand, guerrero) %>% 
+  pull(lambda_guerrero)
+```
+
+```{r}
+elec_fit2 <- elec_train |> 
+  model(
+    stl_reg = decomposition_model(
+      STL(Demand ~ season(period = "year", window = "periodic") + 
+          season(period = "week", window = "periodic") +
+          season(period = "day", window = "periodic")
+          ),
+      TSLM(season_adjust ~ Temperature + I(Temperature^2) + Holiday)
+    ),
+    fourier = ARIMA(Demand ~ fourier(K = 6) + Temperature + I(Temperature^2) + Holiday + PDQ(0,0,0)),
+    comb = combination_model(
+      decomposition_model(
+      STL(Demand ~ season(period = "year", window = "periodic") + 
+          season(period = "week", window = "periodic") +
+          season(period = "day", window = "periodic")
+          ),
+      TSLM(season_adjust ~ Temperature + I(Temperature^2) + Holiday)
+    ),
+    ARIMA(Demand ~ fourier(K = 6) + 
+            Temperature + I(Temperature^2) + Holiday + PDQ(0,0,0))
+    )
+    
+  )
+
+elec_fcst <- elec_fit2 |>
+  forecast(elec_test)
+
+elec_fcst |> 
+  accuracy(elec) |> 
+  select(.model:.type, MAPE, MAE) |> 
+  arrange(MAPE)
+```
+
+```{r}
+p <- elec_fcst |> 
+  autoplot(elec |> filter_index("2014-10-01" ~ .), level = NULL) #+ 
+  # theme(legend.position = "top")
+
+ggplotly(p, dynamicTicks = TRUE) |> 
+  rangeslider()
+```
+
+En este análisis de la demanda energética se compararon varios modelos incluyendo componentes estacionales y variables como la temperatura y los días feriados, rezagos y descomposición con STL. El mejor desempeño lo obtuvo un modelo combinado, que integró un modelo de descomposición STL para capturar múltiples estacionalidades (anual, semanal y diaria), además de una regresión lineal sobre la serie ajustada por estacionalidad usando temperatura y holiday. Finalmente, se agregó un modelo arima con componentes de Furier con K=6 que permitió capturar comportamientos estacionales. Estos modelos combinados lograron el mejor Mape, 7.36, lo que quiere decir que es una buena predicción al tener un error mínimo.

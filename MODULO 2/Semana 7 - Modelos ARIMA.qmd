@@ -1,0 +1,63 @@
+---
+title: "Semana 7 - Modelos ARIMA"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(fpp3)
+```
+
+```{r}
+mex <- global_economy |> 
+  filter(Country == 'Mexico')
+
+mex |> autoplot(Population)
+
+mex |> 
+  gg_tsdisplay(Population, plot_type = 'partial', lag_max = 100)
+```
+
+Los modelos ARIMA modelan las autocorrelaciones, por lo que debemos fijarnos en ambas gráficas de autocorrelación. De momento esto no nos dice nada porque los datos no son estacionarios, hay que convertirlos.
+
+```{r}
+mex |> 
+  features(Population, unitroot_ndiffs)
+
+mex |> 
+  features(Population |> difference(1), unitroot_kpss)
+```
+
+```{r}
+mex |> 
+  gg_tsdisplay(Population |> difference(1), plot_type = 'partial', lag_max = 25)
+```
+
+La gráfica ACF nos dice q - Tiene un comportamiento senoidal por lo que q = 0
+
+La gráfica PACF nos dice p - muestra que hay 2 resagos significantes consecutivos desde el incio, por lo que q = 2
+
+A partir de esto podemos definir el arima como: **ARIMA(2,1,0)**
+
+# AUS_Production - Gas
+
+```{r}
+gas_train <- aus_production |> 
+  filter_index(. ~ '2005 Q2')
+
+lambda <- gas_train |> 
+  features(Gas, features = guerrero) |> 
+  pull(lambda_guerrero)
+
+lambda
+```
+
+```{r}
+gas_fit <- gas_train |> 
+  model(
+    stl = decomposition_model(
+      STL(box_cox(Gas, lambda = lambda), robust=TRUE),
+      
+    )
+```

@@ -1,0 +1,150 @@
+---
+title: "Modelos_ETS"
+author: "Sam"
+format: html
+editor: visual
+---
+
+```{r}
+#| message: false
+library(tidyverse)
+library(fpp3)
+library(tsibble)
+library(feasts)
+library(fable)
+```
+
+## Preparación y limpieza de datos
+
+```{r}
+manufactura <- tidyquant::tq_get(
+  "MEXPRMNTO01IXOBM",
+  get = "economic.data",
+  from = "1980-01-01"
+) |> 
+  mutate(
+    date = yearmonth(date)
+  ) |> 
+  as_tsibble(index = date)
+
+manufactura_train <- manufactura |> 
+  filter_index(. ~ '2023 mar')
+```
+
+## Visualización de los datos
+
+```{r}
+autoplot(manufactura)
+```
+
+## Propuestas de descomposición STL
+
+### STL automático
+
+```{r}
+manufactura_train |> 
+  model(stl = STL(log(price) ~ season(window = "periodic"), robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
+
+### STL con ventana de estacionalidad manual
+
+```{r}
+manufactura_train |> 
+  model(stl = STL(log(price) ~ trend(window = 12) + season(window = 12), 
+                  robust = TRUE)) |> 
+  components() |> 
+  autoplot()
+```
+
+## Transformación de Box_Cox
+
+```{r}
+lambda <- manufactura_train |> 
+  features(price, features = guerrero)
+
+as.numeric(lambda)
+```
+
+## Propuestas de modelos
+
+```{r}
+manufactura_fit <- manufactura_train |>
+  model(
+    snaive = SNAIVE(log(price)),
+    naive = NAIVE(log(price)),
+    drift  = RW(log(price) ~ drift()),
+    stlf = decomposition_model(
+          STL(log(price) ~ season(window = "periodic"), robust = TRUE),
+          SNAIVE(season_year),
+          RW(season_adjust ~ drift())
+        ),
+    ETS_AAA = ETS(log(price) ~ error("A") + trend("A") + season("A")),
+    ETS_MAM = ETS(log(price) ~ error("M") + trend("A") + season("M")),
+    ETS_AAdA = ETS(log(price) ~ error("A") + trend("Ad") + season("A")),
+    ETS_MAdM = ETS(log(price) ~ error("M") + trend("Ad") + season("M")),
+    combi = combination_model(
+      SNAIVE(log(price)),
+      ETS(log(price) ~ error("A") + trend("Ad") + season("A"))),
+    stlf_ETS1 = decomposition_model(
+          STL(log(price) ~ season(window = "periodic"), robust = TRUE),
+          ETS(season_year ~ error("A") + trend("N") + season("A")),
+          ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+        ),
+    stlf_ETS2 = decomposition_model(
+          STL(log(price) ~ trend(window = 12) + season(window = 12)),
+          ETS(season_year ~ error("A") + trend("N") + season("M")),
+          ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+        ),
+    stlf_ETS3 = decomposition_model(
+          STL(box_cox(price, lambda = as.numeric(lambda)) ~ trend(window = 12) + season(window = 12)),
+          ETS(season_year ~ error("A") + trend("N") + season("M")),
+          ETS(season_adjust ~ error("A") + trend("Ad") + season("N"))
+        )
+  )
+```
+
+## Prueba de autocorrelación de los errores
+
+```{r}
+manufactura_fit |>
+  augment() |>
+  features(.innov, ljung_box, lag = 24)
+```
+
+## Forecast
+
+```{r}
+manufactura_fcst <- manufactura_fit |> 
+  forecast(h = 12) 
+
+manufactura_fcst |> 
+  autoplot(manufactura |> 
+             filter_index('2023 jan'~ .)
+           ) +
+  facet_wrap(~.model, ncol = 2)
+```
+
+## Evaluación por MAE
+
+```{r}
+manufactura_fcst |> 
+  accuracy(manufactura) |> 
+  select(.model:.type, MAE) |> 
+  arrange(MAE)
+```
+
+## Conclusión
+
+Bajo el criterio de minimizar el error MAE, el mejor modelo que se encontróen esta práctica fue una descomposición STl con las siguientes especificaciones:
+
+-   Transformación logarítmica de los precios
+
+-   Ventana de 12 tanto para estacionalidad como tendencia
+
+-   Que sea robusta ante outliers (importante para datos post COVID)
+
+-   Modelo ETS(A,N,M) para la estacionalidad, &
+
+-   Modelo ETS(A,Ad,N) para la serie desestacionalizada

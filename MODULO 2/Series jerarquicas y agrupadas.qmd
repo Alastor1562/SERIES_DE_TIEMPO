@@ -1,0 +1,91 @@
+---
+title: "Series de tiempo jerarquicas y agrupadas"
+format: html
+editor: visual
+---
+
+```{r}
+#| message: false
+library(tidyverse)
+library(fpp3)
+```
+
+# Series Jerarquicas
+
+```{r}
+tourism <- tsibble::tourism |> 
+  mutate(State = recode(State,
+    `New South Wales` = "NSW",
+    `Northern Territory` = "NT",
+    `Queensland` = "QLD",
+    `South Australia` = "SA",
+    `Tasmania` = "TAS",
+    `Victoria` = "VIC",
+    `Western Australia` = "WA"
+  ))
+
+tourism
+```
+
+```{r}
+tourism |> 
+  aggregate_key(State / Region, Trips = sum(Trips))
+```
+
+# Serie Agrupada
+
+```{r}
+prison <- readr::read_csv("https://OTexts.com/fpp3/extrafiles/prison_population.csv") |>
+  mutate(Quarter = yearquarter(Date)) |>
+  select(-Date) |>
+  as_tsibble(key = c(Gender, Legal, State, Indigenous),
+             index = Quarter) |>
+  relocate(Quarter)
+
+prison_gts <- prison |>
+  aggregate_key(Gender * Legal * State, Count = sum(Count)/1e3)
+
+prison_gts
+```
+
+# Serie Jerarquiza y Agrupada
+
+```{r}
+tourism_full <- tourism |>
+  aggregate_key((State / Region) * Purpose, Trips = sum(Trips))
+
+tourism_full
+```
+
+```{r}
+tourism_full |> 
+  filter(!is_aggregated(Purpose), is_aggregated(State), is_aggregated(Region)) |> 
+  autoplot(Trips) + 
+  facet_wrap(vars(Purpose), scale='free_y')
+```
+
+# Bottom-Up Forecasts
+
+```{r}
+turismo_estado <- tourism |> 
+  aggregate_key(State, Trips = sum(Trips))
+
+turismo_estado
+```
+
+```{r}
+turismo_estado |> 
+  model(ets = ETS(Trips)) |> 
+  reconcile(bu=bottom_up(ets)) |> 
+  forecast()
+```
+
+Pasos a seguir para estructuras agregadas:
+
+```         
+data |> aggregate_key() |>  model() |> reconcile() |>  forecast()
+```
+
+```{r}
+
+```
